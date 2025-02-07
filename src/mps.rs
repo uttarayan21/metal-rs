@@ -6,7 +6,6 @@
 // copied, modified, or distributed except according to those terms.
 
 use super::*;
-
 use objc::runtime::BOOL;
 
 #[cfg_attr(
@@ -572,4 +571,204 @@ pub struct MPSIntersectionDistancePrimitiveIndexCoordinates {
     /// The third coordinate `W = 1 - U - V`. Undefined if the ray does not intersect a primitive or
     /// if the intersection type is `MPSIntersectionTypeAny`.
     pub coordinates: [f32; 2],
+}
+
+/// A kernel that processes a single source image.
+///
+/// See <https://developer.apple.com/documentation/metalperformanceshaders/mpsunaryimagekernel>
+pub enum MPSUnaryImageKernel {}
+
+foreign_obj_type! {
+    type CType = MPSUnaryImageKernel;
+    pub struct UnaryImageKernel;
+    type ParentType = Kernel;
+}
+
+/// Represents a 2D offset.
+/// See <https://developer.apple.com/documentation/metalperformanceshaders/mpsoffset>
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct MPSOffset {
+    pub x: NSInteger,
+    pub y: NSInteger,
+}
+
+/// Represents a 2D region.
+/// See <https://developer.apple.com/documentation/metalperformanceshaders/mpsregion>
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct MPSRegion {
+    pub origin: MPSOffset,
+    pub size: MPSSize,
+}
+
+/// Represents dimensions of a 2D region.
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct MPSSize {
+    pub width: NSUInteger,
+    pub height: NSUInteger,
+}
+
+impl UnaryImageKernelRef {
+    pub fn encode_to_command_buffer(
+        &self,
+        command_buffer: &CommandBufferRef,
+        source_texture: &TextureRef,
+        destination_texture: &TextureRef,
+    ) {
+        unsafe {
+            msg_send![
+                self,
+                encodeToCommandBuffer: command_buffer
+                sourceTexture: source_texture
+                destinationTexture: destination_texture
+            ]
+        }
+    }
+
+    pub fn clip_rect(&self) -> MPSRegion {
+        unsafe { msg_send![self, clipRect] }
+    }
+
+    pub fn set_clip_rect(&self, rect: MPSRegion) {
+        unsafe { msg_send![self, setClipRect: rect] }
+    }
+
+    pub fn offset(&self) -> MPSOffset {
+        unsafe { msg_send![self, offset] }
+    }
+
+    pub fn set_offset(&self, offset: MPSOffset) {
+        unsafe { msg_send![self, setOffset: offset] }
+    }
+}
+
+impl UnaryImageKernel {
+    pub fn from_device(device: &DeviceRef) -> Option<Self> {
+        unsafe {
+            let kernel: UnaryImageKernel = msg_send![class!(MPSUnaryImageKernel), alloc];
+            let ptr: *mut Object = msg_send![kernel.as_ref(), initWithDevice: device];
+            if ptr.is_null() {
+                None
+            } else {
+                Some(kernel)
+            }
+        }
+    }
+}
+
+/// A kernel that scales an image to a different size.
+///
+/// See <https://developer.apple.com/documentation/metalperformanceshaders/mpsimagescale>
+pub enum MPSImageScale {}
+
+foreign_obj_type! {
+    type CType = MPSImageScale;
+    pub struct ImageScale;
+    type ParentType = UnaryImageKernel;
+}
+
+impl ImageScale {
+    pub fn from_device(device: &DeviceRef) -> Option<Self> {
+        unsafe {
+            let scale: ImageScale = msg_send![class!(MPSImageScale), alloc];
+            let ptr: *mut Object = msg_send![scale.as_ref(), initWithDevice: device];
+            if ptr.is_null() {
+                None
+            } else {
+                Some(scale)
+            }
+        }
+    }
+}
+
+impl ImageScaleRef {
+    pub fn encode_to_command_buffer(
+        &self,
+        command_buffer: &CommandBufferRef,
+        source_texture: &TextureRef,
+        destination_texture: &TextureRef,
+    ) {
+        unsafe {
+            msg_send![
+                self,
+                encodeToCommandBuffer: command_buffer
+                sourceTexture: source_texture
+                destinationTexture: destination_texture
+            ]
+        }
+    }
+
+    pub fn scale_transform(&self) -> MPSScaleTransform {
+        unsafe { msg_send![self, scaleTransform] }
+    }
+
+    pub fn set_scale_transform(&self, transform: MPSScaleTransform) {
+        unsafe { msg_send![self, setScaleTransform: transform] }
+    }
+}
+
+/// Represents scale transform parameters.
+/// See <https://developer.apple.com/documentation/metalperformanceshaders/mpsscaletransform>
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct MPSScaleTransform {
+    /// The horizontal scale factor
+    pub scale_x: f32,
+    /// The vertical scale factor
+    pub scale_y: f32,
+    /// The horizontal translation in pixels
+    pub translate_x: f32,
+    /// The vertical translation in pixels
+    pub translate_y: f32,
+}
+
+impl MPSScaleTransform {
+    /// Creates a new scale transform with the specified parameters
+    pub fn new(scale_x: f32, scale_y: f32, translate_x: f32, translate_y: f32) -> Self {
+        Self {
+            scale_x,
+            scale_y,
+            translate_x,
+            translate_y,
+        }
+    }
+
+    /// Creates a scale transform that maps source coordinates to destination coordinates
+    pub fn with_source_rect_dest_rect(source_rect: MPSRegion, dest_rect: MPSRegion) -> Self {
+        let scale_x = dest_rect.size.width as f32 / source_rect.size.width as f32;
+        let scale_y = dest_rect.size.height as f32 / source_rect.size.height as f32;
+
+        let translate_x = (dest_rect.origin.x as f32) - (source_rect.origin.x as f32 * scale_x);
+        let translate_y = (dest_rect.origin.y as f32) - (source_rect.origin.y as f32 * scale_y);
+
+        Self::new(scale_x, scale_y, translate_x, translate_y)
+    }
+}
+
+/// A kernel that scales an image using Lanczos resampling.
+///
+/// See <https://developer.apple.com/documentation/metalperformanceshaders/mpsimagelanczosscale>
+pub enum MPSImageLanczosScale {}
+
+foreign_obj_type! {
+    type CType = MPSImageLanczosScale;
+    pub struct ImageLanczosScale;
+    type ParentType = ImageScale;
+}
+
+impl ImageLanczosScale {
+    /// Creates a new Lanczos scale filter with the specified device.
+    pub fn from_device(device: &DeviceRef) -> Option<Self> {
+        unsafe {
+            let scale: ImageLanczosScale = msg_send![class!(MPSImageLanczosScale), alloc];
+            let ptr: *mut Object = msg_send![scale.as_ref(), initWithDevice: device];
+            if ptr.is_null() {
+                None
+            } else {
+                Some(scale)
+            }
+        }
+    }
 }

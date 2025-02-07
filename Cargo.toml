@@ -93,6 +93,10 @@ name = "mps"
 required-features = ["mps"]
 
 [[example]]
+name = "mps_lanczos_scale"
+required-features = ["mps"]
+
+[[example]]
 name = "embedded-lib"
 path = "examples/compute/embedded-lib.rs"
 
